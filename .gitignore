@@ -4,4 +4,5 @@ data/*
 .vscode/
 __MACOSX/
 venv/*
+.venv/
 **/.DS_Store
