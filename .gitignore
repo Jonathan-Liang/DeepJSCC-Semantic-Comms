@@ -3,4 +3,5 @@ data/*
 **/*.pyc
 .vscode/
 __MACOSX/
+venv/*
 **/.DS_Store
