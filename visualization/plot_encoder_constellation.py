@@ -1,3 +1,4 @@
+import csv
 import os
 import sys
 
@@ -24,6 +25,9 @@ def get_parser():
     parser.add_argument("--plot_all_pairs", action="store_true", help="Plot all channel pairs (0/1,2/3,...)")
     parser.add_argument("--output_dir", type=str, default="./outputs/constellation", help="Directory to save plots")
     parser.add_argument("--output_prefix", type=str, default="encoder_constellation", help="Output file prefix")
+    parser.add_argument("--with_table", action="store_true", help="Save a side-by-side constellation + math table figure")
+    parser.add_argument("--save_table_csv", action="store_true", help="Save per-pair math/stat table as CSV")
+    parser.add_argument("--save_points_csv", action="store_true", help="Save one row per constellation point to CSV")
     return parser
 
 
@@ -99,6 +103,109 @@ def save_constellation(points, out_path, title):
     plt.close()
 
 
+def pair_stats(points):
+    i_vals = points[:, 0]
+    q_vals = points[:, 1]
+    radius = np.sqrt(i_vals**2 + q_vals**2)
+    return {
+        "N": int(points.shape[0]),
+        "mean(I)": float(np.mean(i_vals)),
+        "mean(Q)": float(np.mean(q_vals)),
+        "var(I)": float(np.var(i_vals)),
+        "var(Q)": float(np.var(q_vals)),
+        "cov(I,Q)": float(np.cov(i_vals, q_vals)[0, 1]),
+        "mean(|s|)": float(np.mean(radius)),
+        "mean(|s|^2)": float(np.mean(radius**2)),
+    }
+
+
+def save_constellation_with_table(points, out_path, pair, title, stats):
+    fig, axes = plt.subplots(1, 2, figsize=(11, 5), gridspec_kw={"width_ratios": [3, 2]})
+
+    ax_scatter = axes[0]
+    ax_scatter.scatter(points[:, 0], points[:, 1], s=3, alpha=0.2)
+    ax_scatter.axhline(0.0, color="gray", linewidth=0.8)
+    ax_scatter.axvline(0.0, color="gray", linewidth=0.8)
+    ax_scatter.set_xlabel("In-phase (I)")
+    ax_scatter.set_ylabel("Quadrature (Q)")
+    ax_scatter.set_title(title)
+    ax_scatter.set_aspect("equal", adjustable="box")
+
+    ax_table = axes[1]
+    ax_table.axis("off")
+    rows = [
+        ["Expression", "Definition"],
+        ["s_k", "s_k = I_k + jQ_k"],
+        ["I_k", "z[:, 2k]"],
+        ["Q_k", "z[:, 2k+1]"],
+        ["k", "{}".format(pair)],
+        ["N", "{}".format(stats["N"])],
+        ["mean(I)", "{:.5f}".format(stats["mean(I)"])],
+        ["mean(Q)", "{:.5f}".format(stats["mean(Q)"])],
+        ["var(I)", "{:.5f}".format(stats["var(I)"])],
+        ["var(Q)", "{:.5f}".format(stats["var(Q)"])],
+        ["cov(I,Q)", "{:.5f}".format(stats["cov(I,Q)"])],
+        ["mean(|s|)", "{:.5f}".format(stats["mean(|s|)"])],
+        ["mean(|s|^2)", "{:.5f}".format(stats["mean(|s|^2)"])],
+    ]
+    table = ax_table.table(cellText=rows[1:], colLabels=rows[0], loc="center", cellLoc="left")
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 1.3)
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
+
+
+def write_stats_csv(csv_path, rows):
+    fieldnames = [
+        "pair",
+        "N",
+        "mean(I)",
+        "mean(Q)",
+        "var(I)",
+        "var(Q)",
+        "cov(I,Q)",
+        "mean(|s|)",
+        "mean(|s|^2)",
+    ]
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
+def write_points_csv(csv_path, rows):
+    fieldnames = ["pair", "point_index", "I", "Q", "abs_s", "phase_rad"]
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
+def points_to_rows(points, pair):
+    rows = []
+    for point_index in range(points.shape[0]):
+        i_val = float(points[point_index, 0])
+        q_val = float(points[point_index, 1])
+        abs_s = float(np.sqrt(i_val**2 + q_val**2))
+        phase_rad = float(np.arctan2(q_val, i_val))
+        rows.append(
+            {
+                "pair": int(pair),
+                "point_index": point_index,
+                "I": i_val,
+                "Q": q_val,
+                "abs_s": abs_s,
+                "phase_rad": phase_rad,
+            }
+        )
+    return rows
+
+
 def main():
     parser = get_parser()
     args = parser.parse_args()
@@ -124,21 +231,71 @@ def main():
         raise ValueError("Encoder output channels must be at least 2")
 
     if args.plot_all_pairs:
+        csv_rows = []
+        points_rows = []
         for pair in range(num_pairs):
-            pair_points = symbols[:, 2 * pair: 2 * pair + 2]
-            pair_points = maybe_subsample(pair_points, args.max_points, rng)
+            pair_points_full = symbols[:, 2 * pair: 2 * pair + 2]
+            pair_points = maybe_subsample(pair_points_full, args.max_points, rng)
+            stats = pair_stats(pair_points)
+
             out_path = os.path.join(args.output_dir, "{}_pair_{}.png".format(args.output_prefix, pair))
             save_constellation(pair_points, out_path, "Encoder Constellation Pair {}".format(pair))
             print("Saved:", out_path)
+
+            if args.with_table:
+                table_path = os.path.join(args.output_dir, "{}_pair_{}_table.png".format(args.output_prefix, pair))
+                save_constellation_with_table(
+                    pair_points,
+                    table_path,
+                    pair,
+                    "Encoder Constellation Pair {}".format(pair),
+                    stats,
+                )
+                print("Saved:", table_path)
+
+            csv_rows.append({"pair": pair, **stats})
+            if args.save_points_csv:
+                points_rows.extend(points_to_rows(pair_points_full, pair))
+
+        if args.save_table_csv:
+            csv_path = os.path.join(args.output_dir, "{}_stats.csv".format(args.output_prefix))
+            write_stats_csv(csv_path, csv_rows)
+            print("Saved:", csv_path)
+        if args.save_points_csv:
+            points_csv_path = os.path.join(args.output_dir, "{}_points.csv".format(args.output_prefix))
+            write_points_csv(points_csv_path, points_rows)
+            print("Saved:", points_csv_path)
     else:
         if args.pair_index >= num_pairs:
             raise ValueError("pair_index={} out of range. Valid range: [0, {}]".format(args.pair_index, num_pairs - 1))
-        pair_points = symbols[:, 2 * args.pair_index: 2 * args.pair_index + 2]
-        pair_points = maybe_subsample(pair_points, args.max_points, rng)
+        pair_points_full = symbols[:, 2 * args.pair_index: 2 * args.pair_index + 2]
+        pair_points = maybe_subsample(pair_points_full, args.max_points, rng)
+        stats = pair_stats(pair_points)
+
         out_path = os.path.join(args.output_dir, "{}_pair_{}.png".format(args.output_prefix, args.pair_index))
         save_constellation(pair_points, out_path, "Encoder Constellation Pair {}".format(args.pair_index))
         print("Saved:", out_path)
 
+        if args.with_table:
+            table_path = os.path.join(args.output_dir, "{}_pair_{}_table.png".format(args.output_prefix, args.pair_index))
+            save_constellation_with_table(
+                pair_points,
+                table_path,
+                args.pair_index,
+                "Encoder Constellation Pair {}".format(args.pair_index),
+                stats,
+            )
+            print("Saved:", table_path)
+
+        if args.save_table_csv:
+            csv_path = os.path.join(args.output_dir, "{}_stats.csv".format(args.output_prefix))
+            write_stats_csv(csv_path, [{"pair": args.pair_index, **stats}])
+            print("Saved:", csv_path)
+        if args.save_points_csv:
+            points_csv_path = os.path.join(args.output_dir, "{}_points.csv".format(args.output_prefix))
+            write_points_csv(points_csv_path, points_to_rows(pair_points_full, args.pair_index))
+            print("Saved:", points_csv_path)
+
 
 if __name__ == "__main__":
-    main()    main()
+    main()
