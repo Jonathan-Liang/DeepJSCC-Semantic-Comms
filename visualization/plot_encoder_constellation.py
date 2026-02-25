@@ -17,8 +17,9 @@ import models.autoencoders as ae
 
 
 def get_parser():
+    """Create and return CLI parser for constellation plotting options."""
     parser = config.get_common_parser()
-    parser.add_argument("--jscc_model_path", "-jmp", type=str, required=True, help="Path to JSCC checkpoint")
+    parser.add_argument("--jscc_model_path", "-jmp", type=str, default=None, help="Path to JSCC checkpoint")
     parser.add_argument("--num_batches", type=int, default=1, help="How many test batches to sample")
     parser.add_argument("--max_points", type=int, default=10000, help="Max points per constellation plot")
     parser.add_argument("--pair_index", type=int, default=0, help="Channel pair index for I/Q plot")
@@ -31,7 +32,27 @@ def get_parser():
     return parser
 
 
+def resolve_checkpoint_path(raw_path):
+    """Resolve checkpoint path from absolute, project-relative, or saved_models paths."""
+    if raw_path is None:
+        return None
+
+    if os.path.isabs(raw_path) and os.path.isfile(raw_path):
+        return raw_path
+
+    candidates = [
+        raw_path,
+        os.path.join(ROOT_DIR, raw_path),
+        os.path.join(ROOT_DIR, "saved_models", raw_path),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def build_model(args, dev):
+    """Construct Generator model, load checkpoint weights, and switch to eval mode."""
     if "cifar" in args.dataset:
         encoder_cls = ae.Encoder_CIFAR
         decoder_cls = ae.Decoder_CIFAR
@@ -60,13 +81,21 @@ def build_model(args, dev):
     )
 
     net = ae.Generator(encoder, decoder)
-    net.load_state_dict(torch.load(args.jscc_model_path, map_location=dev))
+    checkpoint_path = resolve_checkpoint_path(args.jscc_model_path)
+    if checkpoint_path is None:
+        raise FileNotFoundError(
+            "JSCC checkpoint not found. Provide --jscc_model_path as an absolute path, "
+            "a path relative to project root, or a filename under saved_models/."
+        )
+    print("Loading JSCC checkpoint:", checkpoint_path)
+    net.load_state_dict(torch.load(checkpoint_path, map_location=dev))
     net.to(torch.device(dev))
     net.eval()
     return net
 
 
 def sample_encoder_symbols(net, dataloader, device, num_batches):
+    """Collect flattened encoder latent symbols from a fixed number of test batches."""
     symbols = []
     with torch.no_grad():
         for i, data in enumerate(dataloader):
@@ -83,6 +112,7 @@ def sample_encoder_symbols(net, dataloader, device, num_batches):
 
 
 def maybe_subsample(points, max_points, rng):
+    """Randomly subsample points to at most max_points rows."""
     if points.shape[0] <= max_points:
         return points
     indices = rng.choice(points.shape[0], size=max_points, replace=False)
@@ -90,6 +120,7 @@ def maybe_subsample(points, max_points, rng):
 
 
 def save_constellation(points, out_path, title):
+    """Save a 2D I/Q scatter plot for one channel pair."""
     plt.figure(figsize=(6, 6))
     plt.scatter(points[:, 0], points[:, 1], s=3, alpha=0.2)
     plt.axhline(0.0, color="gray", linewidth=0.8)
@@ -104,6 +135,7 @@ def save_constellation(points, out_path, title):
 
 
 def pair_stats(points):
+    """Compute summary statistics for a 2D constellation pair."""
     i_vals = points[:, 0]
     q_vals = points[:, 1]
     radius = np.sqrt(i_vals**2 + q_vals**2)
@@ -120,6 +152,7 @@ def pair_stats(points):
 
 
 def save_constellation_with_table(points, out_path, pair, title, stats):
+    """Save constellation scatter with a side table of definitions and statistics."""
     fig, axes = plt.subplots(1, 2, figsize=(11, 5), gridspec_kw={"width_ratios": [3, 2]})
 
     ax_scatter = axes[0]
@@ -159,6 +192,7 @@ def save_constellation_with_table(points, out_path, pair, title, stats):
 
 
 def write_stats_csv(csv_path, rows):
+    """Write per-pair constellation summary statistics to CSV."""
     fieldnames = [
         "pair",
         "N",
@@ -178,6 +212,7 @@ def write_stats_csv(csv_path, rows):
 
 
 def write_points_csv(csv_path, rows):
+    """Write per-point I/Q values and derived quantities to CSV."""
     fieldnames = ["pair", "point_index", "I", "Q", "abs_s", "phase_rad"]
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -187,6 +222,7 @@ def write_points_csv(csv_path, rows):
 
 
 def points_to_rows(points, pair):
+    """Convert raw pair points into row dictionaries for CSV export."""
     rows = []
     for point_index in range(points.shape[0]):
         i_val = float(points[point_index, 0])
@@ -207,6 +243,7 @@ def points_to_rows(points, pair):
 
 
 def main():
+    """Parse args, sample encoder symbols, and generate requested constellation artifacts."""
     parser = get_parser()
     args = parser.parse_args()
 

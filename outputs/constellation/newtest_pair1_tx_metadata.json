@@ -1,0 +1,19 @@
+{
+  "points_csv": "outputs/constellation/newtest_pair1_points.csv",
+  "pair": 1,
+  "num_symbols": 16384,
+  "num_samples": 131072,
+  "sps": 8,
+  "rrc_beta": 0.35,
+  "rrc_span": 12,
+  "target_power": 1.0,
+  "power_before_norm": 0.2521069049835205,
+  "power_after_all": 1.0,
+  "clip_mag": null,
+  "gain": 1.0,
+  "sample_rate": 1000000.0,
+  "freq_offset_hz": 0.0,
+  "rrc_tap_count": 193,
+  "npy_path": "outputs/constellation/newtest_pair1_tx.npy",
+  "iq_f32_bin_path": "outputs/constellation/newtest_pair1_tx_iq_f32.bin"
+}

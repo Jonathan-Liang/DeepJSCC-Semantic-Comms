@@ -1,0 +1,19 @@
+{
+  "points_csv": "outputs/constellation/run_clean_points.csv",
+  "pair": 0,
+  "num_symbols": 8192,
+  "num_samples": 65536,
+  "sps": 8,
+  "rrc_beta": 0.25,
+  "rrc_span": 10,
+  "target_power": 1.0,
+  "power_before_norm": 0.2483074814081192,
+  "power_after_all": 1.0000001192092896,
+  "clip_mag": null,
+  "gain": 1.0,
+  "sample_rate": 1000000.0,
+  "freq_offset_hz": 0.0,
+  "rrc_tap_count": 161,
+  "npy_path": "outputs/constellation/run_clean_tx.npy",
+  "iq_f32_bin_path": "outputs/constellation/run_clean_tx_iq_f32.bin"
+}
